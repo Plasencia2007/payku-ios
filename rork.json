@@ -1,0 +1,11 @@
+{
+  "apps": [
+    {
+      "name": "Payku",
+      "path": "payku",
+      "framework": "swift"
+    }
+  ],
+  "$schema": "https://rork.com/schema/rork.json"
+}
+
