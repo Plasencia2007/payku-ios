@@ -1,25 +1,35 @@
 import SwiftUI
+import UIKit
 
 enum PaykuColor {
-    static let brand = Color(red: 0.424, green: 0.259, blue: 0.902)
-    static let brandLight = Color(red: 0.541, green: 0.408, blue: 0.937)
-    static let brandInk = Color(red: 0.271, green: 0.145, blue: 0.612)
-    static let brandWash = Color(red: 0.937, green: 0.914, blue: 0.996)
-    static let canvas = Color(red: 0.965, green: 0.980, blue: 0.973)
-    static let mist = Color(red: 0.937, green: 0.945, blue: 0.941)
-    static let border = Color(red: 0.925, green: 0.910, blue: 0.882)
-    static let ink = Color(red: 0.102, green: 0.090, blue: 0.078)
-    static let secondaryInk = Color(red: 0.420, green: 0.396, blue: 0.365)
-    static let success = Color(red: 0.118, green: 0.620, blue: 0.416)
-    static let successWash = Color(red: 0.890, green: 0.961, blue: 0.925)
-    static let warning = Color(red: 0.878, green: 0.525, blue: 0.0)
-    static let warningWash = Color(red: 1.0, green: 0.953, blue: 0.871)
-    static let danger = Color(red: 0.863, green: 0.149, blue: 0.149)
-    static let dangerWash = Color(red: 0.984, green: 0.914, blue: 0.914)
+    static let brand = Color.paykuDynamic(light: UIColor(red: 0.424, green: 0.259, blue: 0.902, alpha: 1), dark: UIColor(red: 0.58, green: 0.43, blue: 1.0, alpha: 1))
+    static let brandLight = Color.paykuDynamic(light: UIColor(red: 0.541, green: 0.408, blue: 0.937, alpha: 1), dark: UIColor(red: 0.70, green: 0.60, blue: 1.0, alpha: 1))
+    static let brandInk = Color.paykuDynamic(light: UIColor(red: 0.271, green: 0.145, blue: 0.612, alpha: 1), dark: UIColor(red: 0.82, green: 0.75, blue: 1.0, alpha: 1))
+    static let brandWash = Color.paykuDynamic(light: UIColor(red: 0.937, green: 0.914, blue: 0.996, alpha: 1), dark: UIColor(red: 0.20, green: 0.15, blue: 0.32, alpha: 1))
+    static let canvas = Color.paykuDynamic(light: UIColor(red: 0.965, green: 0.980, blue: 0.973, alpha: 1), dark: UIColor(red: 0.055, green: 0.052, blue: 0.068, alpha: 1))
+    static let surface = Color.paykuDynamic(light: UIColor.white, dark: UIColor(red: 0.105, green: 0.102, blue: 0.13, alpha: 1))
+    static let mist = Color.paykuDynamic(light: UIColor(red: 0.937, green: 0.945, blue: 0.941, alpha: 1), dark: UIColor(red: 0.15, green: 0.145, blue: 0.18, alpha: 1))
+    static let border = Color.paykuDynamic(light: UIColor(red: 0.925, green: 0.910, blue: 0.882, alpha: 1), dark: UIColor(red: 0.24, green: 0.23, blue: 0.29, alpha: 1))
+    static let ink = Color.paykuDynamic(light: UIColor(red: 0.102, green: 0.090, blue: 0.078, alpha: 1), dark: UIColor(red: 0.96, green: 0.95, blue: 0.98, alpha: 1))
+    static let secondaryInk = Color.paykuDynamic(light: UIColor(red: 0.420, green: 0.396, blue: 0.365, alpha: 1), dark: UIColor(red: 0.70, green: 0.68, blue: 0.74, alpha: 1))
+    static let success = Color.paykuDynamic(light: UIColor(red: 0.118, green: 0.620, blue: 0.416, alpha: 1), dark: UIColor(red: 0.35, green: 0.82, blue: 0.59, alpha: 1))
+    static let successWash = Color.paykuDynamic(light: UIColor(red: 0.890, green: 0.961, blue: 0.925, alpha: 1), dark: UIColor(red: 0.10, green: 0.25, blue: 0.18, alpha: 1))
+    static let warning = Color.paykuDynamic(light: UIColor(red: 0.878, green: 0.525, blue: 0.0, alpha: 1), dark: UIColor(red: 1.0, green: 0.69, blue: 0.22, alpha: 1))
+    static let warningWash = Color.paykuDynamic(light: UIColor(red: 1.0, green: 0.953, blue: 0.871, alpha: 1), dark: UIColor(red: 0.29, green: 0.20, blue: 0.08, alpha: 1))
+    static let danger = Color.paykuDynamic(light: UIColor(red: 0.863, green: 0.149, blue: 0.149, alpha: 1), dark: UIColor(red: 1.0, green: 0.42, blue: 0.42, alpha: 1))
+    static let dangerWash = Color.paykuDynamic(light: UIColor(red: 0.984, green: 0.914, blue: 0.914, alpha: 1), dark: UIColor(red: 0.30, green: 0.12, blue: 0.14, alpha: 1))
+}
+
+private extension Color {
+    static func paykuDynamic(light: UIColor, dark: UIColor) -> Color {
+        Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? dark : light
+        })
+    }
 }
 
 struct PaykuCardModifier: ViewModifier {
-    var fill: Color = .white
+    var fill: Color = PaykuColor.surface
     var radius: CGFloat = 20
 
     func body(content: Content) -> some View {
@@ -33,7 +43,7 @@ struct PaykuCardModifier: ViewModifier {
 }
 
 extension View {
-    func paykuCard(fill: Color = .white, radius: CGFloat = 20) -> some View {
+    func paykuCard(fill: Color = PaykuColor.surface, radius: CGFloat = 20) -> some View {
         modifier(PaykuCardModifier(fill: fill, radius: radius))
     }
 }
@@ -119,7 +129,7 @@ struct AvatarView: View {
             Color(red: 0.98, green: 0.83, blue: 0.88),
             Color(red: 0.80, green: 0.94, blue: 0.95)
         ]
-        let hash = name.unicodeScalars.reduce(0) { ($0 + Int($1.value)) % palette.count }
+        let hash: Int = name.unicodeScalars.reduce(0) { ($0 + Int($1.value)) % palette.count }
         return palette[hash]
     }
 
@@ -129,7 +139,8 @@ struct AvatarView: View {
             .foregroundStyle(PaykuColor.ink)
             .frame(width: size, height: size)
             .background(avatarColor, in: .circle)
-            .accessibilityLabel(name)
+            .accessibilityElement()
+            .accessibilityLabel("Avatar de \(name)")
     }
 }
 
@@ -148,6 +159,7 @@ struct MetricTile: View {
                     .foregroundStyle(tint)
                     .frame(width: 34, height: 34)
                     .background(tint.opacity(0.12), in: .circle)
+                    .accessibilityHidden(true)
                 Spacer()
             }
             Text(value)
@@ -186,6 +198,58 @@ struct SectionHeader: View {
                     .foregroundStyle(PaykuColor.brand)
             }
         }
+    }
+}
+
+struct CommerceInactiveBanner: View {
+    var body: some View {
+        Label("Comercio inactivo", systemImage: "exclamationmark.octagon.fill")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(PaykuColor.danger)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(PaykuColor.dangerWash)
+            .accessibilityLabel("Comercio inactivo. Contacta al administrador.")
+    }
+}
+
+struct PaykuLoadingState: View {
+    let title: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView().tint(PaykuColor.brand)
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(PaykuColor.secondaryInk)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 42)
+    }
+}
+
+struct PaykuErrorState: View {
+    let message: String
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.title2)
+                .foregroundStyle(PaykuColor.warning)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(PaykuColor.secondaryInk)
+                .multilineTextAlignment(.center)
+            Button("Reintentar", action: retry)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(PaykuColor.brand)
+                .frame(minHeight: 44)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 34)
+        .padding(.horizontal, 18)
     }
 }
 

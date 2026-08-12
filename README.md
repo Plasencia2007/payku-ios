@@ -64,3 +64,4 @@ Lo que **no** está (y hay que resolver con backend/otra fuente):
 
 Ver el documento `especificacion-funcional-payku-swift.md` (en el repo de la app Android) para el
 detalle de cada pantalla, regla de negocio y endpoint.
+

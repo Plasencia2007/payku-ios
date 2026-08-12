@@ -12,3 +12,4 @@ struct PaykuApp: App {
         }
     }
 }
+

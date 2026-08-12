@@ -1,9 +1,11 @@
 import AVFoundation
+import AudioToolbox
 import PhotosUI
 import SwiftUI
 
 struct ContentView: View {
     @Environment(PaykuStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -21,7 +23,27 @@ struct ContentView: View {
                 CashierAppView()
             }
         }
+        .overlay(alignment: .top) {
+            if store.commerceInactive {
+                CommerceInactiveBanner()
+            }
+        }
         .preferredColorScheme(nil)
+        .task {
+            if store.isLinked && store.isSetupComplete { store.startRuntime() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                if store.isLinked && store.isSetupComplete {
+                    store.startRuntime()
+                }
+            case .background, .inactive:
+                store.stopRuntime()
+            @unknown default:
+                break
+            }
+        }
     }
 }
 
@@ -131,7 +153,6 @@ struct IntroView: View {
 struct LinkingView: View {
     @Environment(PaykuStore.self) private var store
     @State private var code: String = "PYK-48A2Q7"
-    @State private var selectedRole: PaykuRole = .owner
     @State private var showScanner = false
     @State private var photoItem: PhotosPickerItem?
     @FocusState private var codeFocused: Bool
@@ -197,7 +218,7 @@ struct LinkingView: View {
                             .font(.system(.title3, design: .monospaced, weight: .semibold))
                             .padding(.horizontal, 16)
                             .frame(minHeight: 56)
-                            .background(.white, in: .rect(cornerRadius: 14))
+                            .background(PaykuColor.surface, in: .rect(cornerRadius: 14))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                                     .stroke(codeFocused ? PaykuColor.brand : PaykuColor.border, lineWidth: codeFocused ? 2 : 1)
@@ -210,25 +231,9 @@ struct LinkingView: View {
                     }
                     .padding(.top, 26)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Experiencia de este celular")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(PaykuColor.secondaryInk)
-                        Picker("Rol", selection: $selectedRole) {
-                            ForEach(PaykuRole.allCases) { role in
-                                Text(role.title).tag(role)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        Text(selectedRole == .owner ? "Controla la caja y el estado de la fuente externa." : "Muestra y canta cada cobro que llega al negocio.")
-                            .font(.caption)
-                            .foregroundStyle(PaykuColor.secondaryInk)
-                    }
-                    .padding(.top, 26)
-
                     Button {
                         codeFocused = false
-                        store.link(code: code, role: selectedRole)
+                        store.link(code: code)
                     } label: {
                         Text("Entrar")
                             .font(.headline)
@@ -238,9 +243,18 @@ struct LinkingView: View {
                             .background(PaykuColor.brand, in: .capsule)
                     }
                     .buttonStyle(.plain)
-                    .disabled(code.isEmpty)
-                    .opacity(code.isEmpty ? 0.45 : 1)
+                    .disabled(code.isEmpty || store.isLoading)
+                    .opacity(code.isEmpty || store.isLoading ? 0.45 : 1)
                     .padding(.top, 28)
+
+                    if let errorMessage = store.errorMessage {
+                        Text(errorMessage)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(PaykuColor.danger)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 12)
+                    }
 
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "info.circle")
@@ -637,7 +651,10 @@ struct OwnerDashboardView: View {
                                 .foregroundStyle(PaykuColor.secondaryInk)
                         }
                         Spacer()
-                        Button("Reintentar") { shouldRefresh.toggle() }
+                        Button("Reintentar") {
+                            shouldRefresh.toggle()
+                            Task { await store.refresh() }
+                        }
                             .font(.caption.weight(.bold))
                             .foregroundStyle(PaykuColor.brand)
                     }
@@ -653,19 +670,34 @@ struct OwnerDashboardView: View {
                     // The history tab is always one tap away; the link is intentionally visual and quiet here.
                 }
 
-                VStack(spacing: 0) {
-                    ForEach(Array(store.payments.prefix(5))) { payment in
-                        NavigationLink(value: OwnerRoute.payment(payment)) {
-                            PaymentRow(payment: payment, showsChevron: true)
-                        }
-                        .buttonStyle(.plain)
-                        if payment.id != store.payments.prefix(5).last?.id {
-                            Divider().overlay(PaykuColor.border).padding(.leading, 58)
+                if store.isLoading && store.payments.isEmpty {
+                    PaykuLoadingState(title: "Cargando la caja…")
+                        .paykuCard()
+                } else if let errorMessage = store.errorMessage, store.payments.isEmpty {
+                    PaykuErrorState(message: errorMessage) {
+                        Task { await store.refresh() }
+                    }
+                    .paykuCard()
+                } else if store.payments.isEmpty {
+                    ContentUnavailableView("Aún no hay cobros", systemImage: "tray", description: Text("Cuando el sensor externo envíe el primer pago, aparecerá aquí."))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 34)
+                        .paykuCard()
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(store.payments.prefix(5))) { payment in
+                            NavigationLink(value: OwnerRoute.payment(payment)) {
+                                PaymentRow(payment: payment, showsChevron: true)
+                            }
+                            .buttonStyle(.plain)
+                            if payment.id != store.payments.prefix(5).last?.id {
+                                Divider().overlay(PaykuColor.border).padding(.leading, 58)
+                            }
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .paykuCard()
                 }
-                .padding(.horizontal, 16)
-                .paykuCard()
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -679,7 +711,7 @@ struct OwnerDashboardView: View {
         }
         .refreshable {
             shouldRefresh.toggle()
-            try? await Task.sleep(for: .milliseconds(450))
+            await store.refresh()
         }
         .sensoryFeedback(.success, trigger: shouldRefresh)
     }
@@ -701,7 +733,7 @@ struct OwnerHeader: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 6) {
-                Text("DUEÑO")
+                Text("Cuenta vinculada")
                     .font(.caption2.weight(.bold))
                     .tracking(0.7)
                     .foregroundStyle(PaykuColor.brandInk)
@@ -792,6 +824,9 @@ struct OwnerHistoryView: View {
     @Environment(PaykuStore.self) private var store
     @State private var searchText = ""
     @State private var selectedFilter: HistoryFilter = .all
+    @State private var selectedDateFilter: DateFilter = .all
+    @State private var rangeStart: Date = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+    @State private var rangeEnd: Date = Date()
     @State private var showDateFilter = false
 
     private var filteredPayments: [Payment] {
@@ -809,7 +844,19 @@ struct OwnerHistoryView: View {
             case .failed: payment.state == .failed
             case .unread: payment.isUnread
             }
-            return matchesSearch && matchesFilter
+            let matchesDate: Bool = {
+                guard let date = payment.receivedAt else { return selectedDateFilter == .all }
+                var calendar: Calendar = Calendar(identifier: .gregorian)
+                calendar.timeZone = AppConfig.limaTimeZone
+                switch selectedDateFilter {
+                case .today: return calendar.isDateInToday(date)
+                case .sevenDays: return date >= Date().addingTimeInterval(-7 * 24 * 60 * 60)
+                case .month: return calendar.dateInterval(of: .month, for: Date())?.contains(date) == true
+                case .all: return true
+                case .range: return date >= rangeStart && date <= rangeEnd
+                }
+            }()
+            return matchesSearch && matchesFilter && matchesDate
         }
     }
 
@@ -847,7 +894,7 @@ struct OwnerHistoryView: View {
                     }
                     .padding(.horizontal, 14)
                     .frame(minHeight: 48)
-                    .background(.white, in: .rect(cornerRadius: 14))
+                    .background(PaykuColor.surface, in: .rect(cornerRadius: 14))
                     .overlay { RoundedRectangle(cornerRadius: 14).stroke(PaykuColor.border, lineWidth: 1) }
                     Button {
                         showDateFilter = true
@@ -873,7 +920,7 @@ struct OwnerHistoryView: View {
                                     .foregroundStyle(selectedFilter == filter ? .white : PaykuColor.secondaryInk)
                                     .padding(.horizontal, 14)
                                     .frame(minHeight: 38)
-                                    .background(selectedFilter == filter ? PaykuColor.brand : .white, in: .capsule)
+                                    .background(selectedFilter == filter ? PaykuColor.brand : PaykuColor.surface, in: .capsule)
                                     .overlay {
                                         if selectedFilter != filter {
                                             Capsule().stroke(PaykuColor.border, lineWidth: 1)
@@ -911,7 +958,15 @@ struct OwnerHistoryView: View {
                     }
                 }
 
-                if groupedPayments.isEmpty {
+                if store.isLoading && store.payments.isEmpty {
+                    PaykuLoadingState(title: "Cargando historial…")
+                        .paykuCard()
+                } else if let errorMessage = store.errorMessage, store.payments.isEmpty {
+                    PaykuErrorState(message: errorMessage) {
+                        Task { await store.refresh() }
+                    }
+                    .paykuCard()
+                } else if groupedPayments.isEmpty {
                     ContentUnavailableView("No hay pagos", systemImage: "tray", description: Text("Prueba con otro nombre, monto o estado."))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 40)
@@ -956,9 +1011,12 @@ struct OwnerHistoryView: View {
             OwnerRouteDestination(route: route)
         }
         .sheet(isPresented: $showDateFilter) {
-            DateFilterSheet()
+            DateFilterSheet(selected: $selectedDateFilter, rangeStart: $rangeStart, rangeEnd: $rangeEnd)
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
+        }
+        .refreshable {
+            await store.refresh()
         }
     }
 }
@@ -985,25 +1043,32 @@ struct SummaryPill: View {
 
 struct DateFilterSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var selected: String = "Hoy"
-    private let options = ["Hoy", "Últimos 7 días", "Este mes", "Todo", "Rango personalizado"]
+    @Binding var selected: DateFilter
+    @Binding var rangeStart: Date
+    @Binding var rangeEnd: Date
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Mostrar pagos de") {
-                    ForEach(options, id: \.self) { option in
+                    ForEach(DateFilter.allCases) { option in
                         Button {
                             selected = option
                         } label: {
                             HStack {
-                                Text(option).foregroundStyle(PaykuColor.ink)
+                                Text(option.rawValue).foregroundStyle(PaykuColor.ink)
                                 Spacer()
                                 if selected == option {
                                     Image(systemName: "checkmark").foregroundStyle(PaykuColor.brand)
                                 }
                             }
                         }
+                    }
+                }
+                if selected == .range {
+                    Section("Rango personalizado") {
+                        DatePicker("Desde", selection: $rangeStart, displayedComponents: .date)
+                        DatePicker("Hasta", selection: $rangeEnd, displayedComponents: .date)
                     }
                 }
             }
@@ -1030,7 +1095,7 @@ struct OwnerSettingsView: View {
                         AvatarView(name: store.merchantName, size: 52, tint: PaykuColor.brandWash)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(store.merchantName).font(.headline)
-                            Text("DUEÑO · Vinculado").font(.caption).foregroundStyle(PaykuColor.secondaryInk)
+                            Text("Vinculado").font(.caption).foregroundStyle(PaykuColor.secondaryInk)
                         }
                         Spacer()
                         Image(systemName: "chevron.right").foregroundStyle(PaykuColor.secondaryInk)
@@ -1648,7 +1713,7 @@ struct HelpView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(minHeight: 48)
-                .background(.white, in: .rect(cornerRadius: 14))
+                .background(PaykuColor.surface, in: .rect(cornerRadius: 14))
                 .overlay { RoundedRectangle(cornerRadius: 14).stroke(PaykuColor.border, lineWidth: 1) }
 
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -1659,7 +1724,7 @@ struct HelpView: View {
                                 .foregroundStyle(PaykuColor.secondaryInk)
                                 .padding(.horizontal, 14)
                                 .frame(minHeight: 36)
-                                .background(.white, in: .capsule)
+                                .background(PaykuColor.surface, in: .capsule)
                                 .overlay { Capsule().stroke(PaykuColor.border, lineWidth: 1) }
                         }
                     }
@@ -1937,6 +2002,7 @@ struct CashierLiveView: View {
     @State private var selectedPayment: Payment?
     @State private var showDiscardDialog = false
     @State private var announcementCount = 0
+    @State private var lastSpokenPaymentID: String?
     private let speaker = AVSpeechSynthesizer()
 
     private var livePayments: [Payment] { Array(store.payments.prefix(7)) }
@@ -1948,15 +2014,8 @@ struct CashierLiveView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
                             Text("En vivo").font(.system(.largeTitle, design: .rounded, weight: .bold))
-                            Text("CAJERO")
-                                .font(.caption2.weight(.bold))
-                                .tracking(0.7)
-                                .foregroundStyle(PaykuColor.brandInk)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(PaykuColor.brandWash, in: .capsule)
                         }
-                        Text("La Bodega Verde · Barranco")
+                        Text("\(store.merchantName) · \(store.branchName)")
                             .font(.subheadline)
                             .foregroundStyle(PaykuColor.secondaryInk)
                     }
@@ -1997,25 +2056,40 @@ struct CashierLiveView: View {
                     Text("Actualizado ahora").font(.caption).foregroundStyle(PaykuColor.secondaryInk)
                 }
 
-                VStack(spacing: 0) {
-                    ForEach(livePayments) { payment in
-                        Button {
-                            selectedPayment = payment
-                        } label: {
-                            CashierPaymentRow(payment: payment)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button("Descartar este cobro", role: .destructive) {
-                                selectedPayment = payment
-                                showDiscardDialog = true
-                            }
-                        }
-                        if payment.id != livePayments.last?.id { Divider().overlay(PaykuColor.border).padding(.leading, 58) }
+                if store.isLoading && livePayments.isEmpty {
+                    PaykuLoadingState(title: "Conectando con el espejo…")
+                        .paykuCard()
+                } else if let errorMessage = store.errorMessage, livePayments.isEmpty {
+                    PaykuErrorState(message: errorMessage) {
+                        Task { await store.refresh() }
                     }
+                    .paykuCard()
+                } else if livePayments.isEmpty {
+                    ContentUnavailableView("Sin cobros todavía", systemImage: "dot.radiowaves.left.and.right", description: Text(store.sourceIsLive ? "Cuando llegue un pago aparecerá aquí." : "No confundas una jornada sin pagos con una fuente caída."))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 34)
+                        .paykuCard()
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(livePayments) { payment in
+                            Button {
+                                selectedPayment = payment
+                            } label: {
+                                CashierPaymentRow(payment: payment)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Descartar este cobro", role: .destructive) {
+                                    selectedPayment = payment
+                                    showDiscardDialog = true
+                                }
+                            }
+                            if payment.id != livePayments.last?.id { Divider().overlay(PaykuColor.border).padding(.leading, 58) }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .paykuCard()
                 }
-                .padding(.horizontal, 14)
-                .paykuCard()
 
                 Text("Mantén presionado un cobro para descartarlo si no fue una venta.")
                     .font(.caption)
@@ -2028,6 +2102,9 @@ struct CashierLiveView: View {
         .background(PaykuBackground())
         .navigationTitle("En vivo")
         .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            await store.refresh()
+        }
         .sheet(item: $selectedPayment) { payment in
             CashierPaymentDetail(payment: payment)
                 .presentationDetents([.medium])
@@ -2045,14 +2122,23 @@ struct CashierLiveView: View {
         .onAppear {
             speakNewestIfNeeded()
         }
+        .onChange(of: store.payments.first?.id) { _, _ in
+            speakNewestIfNeeded()
+        }
         .sensoryFeedback(.success, trigger: announcementCount)
     }
 
     private func speakNewestIfNeeded() {
-        guard store.cashierVoiceEnabled, let payment = livePayments.first else { return }
-        let amount = payment.amountCents.map { String(format: "%.2f", Double($0) / 100) } ?? "un monto no leído"
-        let phrase = "Yape recibido de \(payment.displayName) por \(amount) soles"
-        speaker.speak(AVSpeechUtterance(string: phrase))
+        guard let payment = livePayments.first, payment.id != lastSpokenPaymentID else { return }
+        lastSpokenPaymentID = payment.id
+        if store.cashierVoiceEnabled {
+            let amount: String = payment.amountCents.map { String(format: "%.2f", Double($0) / 100) } ?? "un monto no leído"
+            let phrase: String = "\(payment.wallet.rawValue) recibido de \(payment.displayName) por \(amount) soles"
+            speaker.speak(AVSpeechUtterance(string: phrase))
+        }
+        if store.cashierSoundEnabled {
+            AudioServicesPlaySystemSound(1007)
+        }
         announcementCount += 1
     }
 }
@@ -2112,6 +2198,7 @@ struct CashierStatusBadge: View {
 
 struct CashierPaymentDetail: View {
     let payment: Payment
+    @Environment(PaykuStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -2124,6 +2211,15 @@ struct CashierPaymentDetail: View {
                 .foregroundStyle(PaykuColor.secondaryInk)
                 .multilineTextAlignment(.center)
             CashierStatusBadge(state: payment.cashierState)
+            if payment.cashierState == .discarded {
+                Button("Deshacer descarte") {
+                    store.restore(payment)
+                    dismiss()
+                }
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(PaykuColor.brand)
+                .frame(minHeight: 44)
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -2151,7 +2247,7 @@ struct CashierSettingsView: View {
                         AvatarView(name: "Turno de caja", size: 52, tint: PaykuColor.brandWash)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Turno de caja").font(.headline)
-                            Text("La Bodega Verde · CAJERO").font(.caption).foregroundStyle(PaykuColor.secondaryInk)
+                            Text("\(store.merchantName) · Turno de caja").font(.caption).foregroundStyle(PaykuColor.secondaryInk)
                         }
                         Spacer()
                     }
@@ -2218,30 +2314,49 @@ struct CashierSettingsView: View {
 }
 
 enum PaykuFormatters {
-    static let limaTimeZone = TimeZone(identifier: "America/Lima") ?? .gmt
+    static let limaTimeZone: TimeZone = AppConfig.limaTimeZone
 
-    static func time(_ date: Date) -> String {
-        let formatter = DateFormatter()
+    static func time(_ date: Date?) -> String {
+        guard let date else { return "Hora no disponible" }
+        let formatter: DateFormatter = DateFormatter()
         formatter.locale = Locale(identifier: "es_PE")
         formatter.timeZone = limaTimeZone
         formatter.dateFormat = "HH:mm"
         return formatter.string(from: date)
     }
 
-    static func fullDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
+    static func fullDate(_ date: Date?) -> String {
+        guard let date else { return "Fecha no disponible" }
+        let formatter: DateFormatter = DateFormatter()
         formatter.locale = Locale(identifier: "es_PE")
         formatter.timeZone = limaTimeZone
         formatter.dateFormat = "d 'de' MMMM 'de' yyyy · HH:mm"
         return formatter.string(from: date)
     }
 
-    static func dayTitle(_ date: Date) -> String {
-        let formatter = DateFormatter()
+    static func dayTitle(_ date: Date?) -> String {
+        guard let date else { return "Fecha no disponible" }
+        let formatter: DateFormatter = DateFormatter()
         formatter.locale = Locale(identifier: "es_PE")
         formatter.timeZone = limaTimeZone
         formatter.dateFormat = "EEEE d 'de' MMMM"
         return formatter.string(from: date).capitalized
+    }
+
+    static func isoDate(_ date: Date) -> String {
+        ISO8601DateFormatter.payku.string(from: date)
+    }
+
+    static func isToday(_ date: Date) -> Bool {
+        var calendar: Calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = limaTimeZone
+        return calendar.isDateInToday(date)
+    }
+
+    static func isYesterday(_ date: Date) -> Bool {
+        var calendar: Calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = limaTimeZone
+        return calendar.isDateInYesterday(date)
     }
 }
 
@@ -2290,4 +2405,5 @@ func copyToClipboard(_ value: String) {
     ContentView()
         .environment(PaykuStore())
 }
+
 
